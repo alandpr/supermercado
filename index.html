@@ -287,42 +287,44 @@
     /* ============================================================
        TELA DO SCANNER
        ============================================================ */
-    const ScannerView = ({ onScan, onCancel, isLoading }) => {
-      const [mode, setMode]           = useState('camera');
+    const ScannerView = ({ onScan, onCancel }) => {
+      const [mode, setMode]             = useState('camera');
       const [manualCode, setManualCode] = useState('');
       const [cameraError, setCameraError] = useState('');
-      const scannerRef  = useRef(null);
-      const scannedRef  = useRef(false);
+      const scannerRef = useRef(null);
+      const scannedRef = useRef(false);
 
       useEffect(() => {
         if (mode !== 'camera') return;
         scannedRef.current = false;
-        const scanner = new Html5Qrcode('qr-reader');
+
+        let scanner;
+        try { scanner = new Html5Qrcode('qr-reader'); }
+        catch(e) { setCameraError('Camera indisponivel. Use a entrada manual.'); setMode('manual'); return; }
         scannerRef.current = scanner;
 
         scanner.start(
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 280, height: 120 } },
-          text => {
+          function(text) {
             if (scannedRef.current) return;
             scannedRef.current = true;
-            scanner.stop().catch(() => {}).finally(() => onScan(text));
+            scannerRef.current = null;
+            scanner.stop()
+              .catch(function() {})
+              .finally(function() { onScan(text); });
           },
-          () => {}
-        ).catch(() => {
-          setCameraError('Câmera indisponível. Use a entrada manual.');
+          function() {}
+        ).catch(function() {
+          setCameraError('Camera indisponivel. Use a entrada manual.');
           setMode('manual');
         });
 
-        return () => { scanner.stop().catch(() => {}); };
+        return function() {
+          try { if (scannerRef.current) { scannerRef.current.stop().catch(function(){}); } }
+          catch(e) {}
+        };
       }, [mode]);
-
-      if (isLoading) return (
-        <div className="fixed inset-0 bg-[#0F1923] z-50 flex flex-col items-center justify-center gap-4">
-          <Spinner size={48} color="#F59E0B"/>
-          <p className="text-white/70 font-medium">Buscando produto...</p>
-        </div>
-      );
 
       return (
         <div className="fixed inset-0 bg-[#0F1923] z-50 flex flex-col"
@@ -596,12 +598,11 @@
        ============================================================ */
     const CartScreen = ({ cart, uid, onFinalize, onDelete, onHistory }) => {
       const [items,       setItems]       = useState(cart.items || []);
-      const [view,        setView]        = useState('cart'); // 'cart'|'scanner'|'addItem'
-      const [lookupLoad,  setLookupLoad]  = useState(false);
-      const [addData,     setAddData]     = useState(null);
-      const [confirm,     setConfirm]     = useState(null);
-      const [saving,      setSaving]      = useState(false);
-      const [saveError,   setSaveError]   = useState(false);
+      const [view,    setView]    = useState('cart'); // 'cart'|'scanner'|'lookup'|'addItem'
+      const [addData, setAddData] = useState(null);
+      const [confirm,   setConfirm]   = useState(null);
+      const [saving,    setSaving]    = useState(false);
+      const [saveError, setSaveError] = useState(false);
       const prevTotalRef  = useRef(0);
       const [totalKey,    setTotalKey]    = useState(0);
 
@@ -621,14 +622,17 @@
       };
 
       const handleScan = async ean => {
-        setLookupLoad(true);
+        // 'lookup' desmonta o scanner ANTES de mostrar o loading
+        // evitando conflito de DOM com o Html5Qrcode
+        setView('lookup');
         let productName = null, lastPrice = null;
-        if (ean) {
-          const cached = await getCachedProduct(uid, ean);
-          if (cached) { productName = cached.name || null; lastPrice = cached.lastPrice ?? null; }
-          if (!productName) productName = await lookupEAN(ean);
-        }
-        setLookupLoad(false);
+        try {
+          if (ean) {
+            const cached = await getCachedProduct(uid, ean);
+            if (cached) { productName = cached.name || null; lastPrice = cached.lastPrice != null ? cached.lastPrice : null; }
+            if (!productName) productName = await lookupEAN(ean);
+          }
+        } catch(e) {}
         setAddData({ ean: ean || null, productName, lastPrice, editId: null });
         setView('addItem');
       };
@@ -675,8 +679,16 @@
         action: async () => { setConfirm(null); await deleteCart(uid, cart.id); onDelete(); }
       });
 
-      if (view === 'scanner' || lookupLoad)
-        return <ScannerView onScan={handleScan} onCancel={() => { if (!lookupLoad) setView('cart'); }} isLoading={lookupLoad}/>;
+      if (view === 'scanner')
+        return <ScannerView onScan={handleScan} onCancel={() => setView('cart')}/>;
+
+      if (view === 'lookup')
+        return (
+          <div className="fixed inset-0 bg-[#0F1923] z-50 flex flex-col items-center justify-center gap-4">
+            <Spinner size={48} color="#F59E0B"/>
+            <p className="text-white font-medium">Buscando produto...</p>
+          </div>
+        );
 
       if (view === 'addItem' && addData)
         return (
