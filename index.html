@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Carrinho</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
@@ -34,11 +33,9 @@
       to   { transform: translateY(0);    opacity: 1; }
     }
     .slide-up { animation: slideUp 0.25s ease-out; }
-
+    .fade-in  { animation: fadeIn 0.2s ease; }
     @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
-    .fade-in { animation: fadeIn 0.2s ease; }
 
-    /* html5-qrcode overrides */
     #qr-reader video { border-radius: 14px; width: 100% !important; }
     #qr-reader img   { border-radius: 14px; }
     #qr-reader { width: 100%; }
@@ -53,11 +50,8 @@
 <body>
   <div id="root"></div>
 
-  <!-- ============================================================
-       FIREBASE CONFIG — substitua pelos seus dados do projeto
-       ============================================================ -->
   <script>
-    const firebaseConfig = {
+    var firebaseConfig = {
       apiKey:            "AIzaSyDFyorDB3H0hza1eFOc5VGzNi82uJq_SRI",
       authDomain:        "supermercado-d5b29.firebaseapp.com",
       projectId:         "supermercado-d5b29",
@@ -66,241 +60,290 @@
       appId:             "1:1072113403376:web:0434c01234937fc35a4935"
     };
     firebase.initializeApp(firebaseConfig);
-    const auth = firebase.auth();
-    const db   = firebase.firestore();
+    var auth = firebase.auth();
+    var db   = firebase.firestore();
   </script>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    var useState   = React.useState;
+    var useEffect  = React.useEffect;
+    var useRef     = React.useRef;
 
-    /* ============================================================
+    /* ================================================================
        UTILITÁRIOS
-       ============================================================ */
-    const fmt = v =>
-      new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+       ================================================================ */
+    function fmt(v) {
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+    }
 
-    const fmtDate = ts => {
+    function fmtDate(ts) {
       if (!ts) return '';
-      const d = ts?.toDate?.() ?? (ts instanceof Date ? ts : new Date());
+      var d;
+      if (ts && typeof ts.toDate === 'function') { d = ts.toDate(); }
+      else if (ts instanceof Date) { d = ts; }
+      else { d = new Date(); }
       return new Intl.DateTimeFormat('pt-BR', {
         day: '2-digit', month: '2-digit', year: '2-digit',
         hour: '2-digit', minute: '2-digit'
       }).format(d);
-    };
+    }
 
-    const uid4 = () => Math.random().toString(36).substr(2, 9);
-    const parseNum = s => parseFloat(String(s).replace(',', '.')) || 0;
+    function uid4() { return Math.random().toString(36).substr(2, 9); }
 
-    /* ============================================================
-       FIREBASE — helpers
-       ============================================================ */
-    const cartsRef    = uid => db.collection(`users/${uid}/carts`);
-    const productsRef = uid => db.collection(`users/${uid}/products`);
+    function parseNum(s) { return parseFloat(String(s).replace(',', '.')) || 0; }
 
-    const getActiveCart = async uid => {
-      const snap = await cartsRef(uid).get();
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .find(c => c.status === 'active') || null;
-    };
+    /* ================================================================
+       FIREBASE
+       ================================================================ */
+    function cartsRef(uid)    { return db.collection('users/' + uid + '/carts'); }
+    function productsRef(uid) { return db.collection('users/' + uid + '/products'); }
 
-    const createCart = async (uid, store) => {
-      const ref  = cartsRef(uid).doc();
-      const data = {
-        status: 'active', store: store || 'BH Supermercados',
+    async function getActiveCart(uid) {
+      try {
+        var snap = await cartsRef(uid).get();
+        var docs = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+        return docs.find(function(c) { return c.status === 'active'; }) || null;
+      } catch(e) { return null; }
+    }
+
+    async function createCart(uid, store) {
+      var ref  = cartsRef(uid).doc();
+      var data = {
+        status: 'active',
+        store: store || 'BH Supermercados',
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        items: [], total: 0
+        items: [],
+        total: 0
       };
       await ref.set(data);
-      return { id: ref.id, ...data, createdAt: new Date() };
-    };
+      return Object.assign({ id: ref.id }, data, { createdAt: new Date() });
+    }
 
-    const saveCart = async (uid, cartId, items) => {
-      const total = items.reduce((s, i) => s + i.subtotal, 0);
-      await cartsRef(uid).doc(cartId).update({ items, total });
+    async function saveCart(uid, cartId, items) {
+      var total = items.reduce(function(s, i) { return s + i.subtotal; }, 0);
+      await cartsRef(uid).doc(cartId).update({ items: items, total: total });
       return total;
-    };
+    }
 
-    const finalizeCart = async (uid, cartId, items, store) => {
-      const total = items.reduce((s, i) => s + i.subtotal, 0);
+    async function finalizeCart(uid, cartId, items, store) {
+      var total = items.reduce(function(s, i) { return s + i.subtotal; }, 0);
       await cartsRef(uid).doc(cartId).update({
-        status: 'completed', store,
+        status: 'completed',
+        store: store,
         completedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        items, total
+        items: items,
+        total: total
       });
-    };
+    }
 
-    const deleteCart = async (uid, cartId) =>
-      cartsRef(uid).doc(cartId).delete();
+    async function deleteCart(uid, cartId) {
+      await cartsRef(uid).doc(cartId).delete();
+    }
 
-    const getHistory = async uid => {
-      const snap = await cartsRef(uid).get();
-      return snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(c => c.status === 'completed')
-        .sort((a, b) => {
-          const da = a.completedAt?.toDate?.() || new Date(0);
-          const db_ = b.completedAt?.toDate?.() || new Date(0);
-          return db_ - da;
-        })
-        .slice(0, 40);
-    };
-
-    const getCachedProduct = async (uid, ean) => {
+    async function getHistory(uid) {
       try {
-        const doc = await productsRef(uid).doc(ean).get();
+        var snap = await cartsRef(uid).get();
+        return snap.docs
+          .map(function(d) { return Object.assign({ id: d.id }, d.data()); })
+          .filter(function(c) { return c.status === 'completed'; })
+          .sort(function(a, b) {
+            var da = (a.completedAt && typeof a.completedAt.toDate === 'function') ? a.completedAt.toDate() : new Date(0);
+            var db_ = (b.completedAt && typeof b.completedAt.toDate === 'function') ? b.completedAt.toDate() : new Date(0);
+            return db_ - da;
+          })
+          .slice(0, 40);
+      } catch(e) { return []; }
+    }
+
+    async function getCachedProduct(uid, ean) {
+      try {
+        var doc = await productsRef(uid).doc(ean).get();
         return doc.exists ? doc.data() : null;
-      } catch { return null; }
-    };
+      } catch(e) { return null; }
+    }
 
-    const cacheProduct = async (uid, ean, name, price) => {
+    async function cacheProduct(uid, ean, name, price) {
       if (!ean) return;
-      const data = { name, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
-      if (price != null) data.lastPrice = price;
-      await productsRef(uid).doc(ean).set(data, { merge: true });
-    };
-
-    /* ============================================================
-       OPEN FOOD FACTS — busca nome pelo EAN
-       ============================================================ */
-    const lookupEAN = async ean => {
       try {
-        const res  = await fetch(`https://world.openfoodfacts.org/api/v0/product/${ean}.json`);
-        const data = await res.json();
+        var data = { name: name, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+        if (price != null) { data.lastPrice = price; }
+        await productsRef(uid).doc(ean).set(data, { merge: true });
+      } catch(e) {}
+    }
+
+    /* ================================================================
+       OPEN FOOD FACTS
+       ================================================================ */
+    async function lookupEAN(ean) {
+      try {
+        var res  = await fetch('https://world.openfoodfacts.org/api/v0/product/' + ean + '.json');
+        var data = await res.json();
         if (data.status === 1 && data.product) {
-          const p    = data.product;
-          const name = p.product_name_pt || p.product_name || '';
-          const brand = p.brands || '';
-          if (name && brand) return `${name} (${brand})`;
+          var p     = data.product;
+          var name  = p.product_name_pt || p.product_name || '';
+          var brand = p.brands || '';
+          if (name && brand) return name + ' (' + brand + ')';
           return name || brand || null;
         }
-      } catch {}
+      } catch(e) {}
       return null;
-    };
+    }
 
-    /* ============================================================
+    /* ================================================================
        ÍCONES
-       ============================================================ */
-    const Ico = ({ n, size = 20, cls = '' }) => {
-      const base = {
+       ================================================================ */
+    function Ico(props) {
+      var n    = props.n;
+      var size = props.size || 20;
+      var cls  = props.cls  || '';
+      var base = {
         width: size, height: size,
         fill: 'none', stroke: 'currentColor',
         strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
-        viewBox: '0 0 24 24',
-        className: cls,
+        viewBox: '0 0 24 24', className: cls,
         style: { flexShrink: 0, display: 'inline-block' }
       };
-      switch (n) {
-        case 'cart':    return <svg {...base}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>;
-        case 'scan':    return <svg {...base}><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>;
-        case 'plus':    return <svg {...base} strokeWidth={2.5}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
-        case 'trash':   return <svg {...base}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>;
-        case 'check':   return <svg {...base} strokeWidth={2.5}><polyline points="20 6 9 17 4 12"/></svg>;
-        case 'back':    return <svg {...base}><polyline points="15 18 9 12 15 6"/></svg>;
-        case 'history': return <svg {...base}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
-        case 'edit':    return <svg {...base}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>;
-        case 'close':   return <svg {...base}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
-        case 'tag':     return <svg {...base}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>;
-        case 'barcode': return (
-          <svg width={size} height={size} viewBox="0 0 100 56" fill="currentColor" className={cls} style={{ flexShrink: 0, display: 'inline-block' }}>
-            <rect x="2"  y="0" width="5"  height="56"/>
-            <rect x="11" y="0" width="3"  height="56"/>
-            <rect x="17" y="0" width="7"  height="56"/>
-            <rect x="27" y="0" width="3"  height="56"/>
-            <rect x="33" y="0" width="5"  height="56"/>
-            <rect x="41" y="0" width="3"  height="56"/>
-            <rect x="47" y="0" width="7"  height="56"/>
-            <rect x="57" y="0" width="3"  height="56"/>
-            <rect x="63" y="0" width="5"  height="56"/>
-            <rect x="71" y="0" width="3"  height="56"/>
-            <rect x="77" y="0" width="5"  height="56"/>
-            <rect x="85" y="0" width="3"  height="56"/>
-            <rect x="91" y="0" width="7"  height="56"/>
-          </svg>
-        );
-        default: return null;
-      }
-    };
+      if (n === 'cart')    return <svg {...base}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>;
+      if (n === 'scan')    return <svg {...base}><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>;
+      if (n === 'plus')    return <svg {...base} strokeWidth={2.5}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+      if (n === 'trash')   return <svg {...base}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>;
+      if (n === 'check')   return <svg {...base} strokeWidth={2.5}><polyline points="20 6 9 17 4 12"/></svg>;
+      if (n === 'back')    return <svg {...base}><polyline points="15 18 9 12 15 6"/></svg>;
+      if (n === 'history') return <svg {...base}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+      if (n === 'edit')    return <svg {...base}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>;
+      if (n === 'close')   return <svg {...base}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+      if (n === 'tag')     return <svg {...base}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>;
+      if (n === 'barcode') return (
+        <svg width={size} height={size} viewBox="0 0 100 56" fill="currentColor" className={cls} style={{ flexShrink: 0, display: 'inline-block' }}>
+          <rect x="2" y="0" width="5" height="56"/><rect x="11" y="0" width="3" height="56"/>
+          <rect x="17" y="0" width="7" height="56"/><rect x="27" y="0" width="3" height="56"/>
+          <rect x="33" y="0" width="5" height="56"/><rect x="41" y="0" width="3" height="56"/>
+          <rect x="47" y="0" width="7" height="56"/><rect x="57" y="0" width="3" height="56"/>
+          <rect x="63" y="0" width="5" height="56"/><rect x="71" y="0" width="3" height="56"/>
+          <rect x="77" y="0" width="5" height="56"/><rect x="85" y="0" width="3" height="56"/>
+          <rect x="91" y="0" width="7" height="56"/>
+        </svg>
+      );
+      return null;
+    }
 
-    /* ============================================================
+    /* ================================================================
        SPINNER / LOADING
-       ============================================================ */
-    const Spinner = ({ size = 32, color = '#F59E0B' }) => (
-      <div
-        className="animate-spin"
-        style={{ width: size, height: size, borderRadius: '50%',
-                 border: `4px solid ${color}33`, borderTopColor: color }}
-      />
-    );
+       ================================================================ */
+    function Spinner(props) {
+      var size  = props.size  || 32;
+      var color = props.color || '#F59E0B';
+      return (
+        <div className="animate-spin" style={{
+          width: size, height: size, borderRadius: '50%',
+          border: '4px solid ' + color + '33',
+          borderTopColor: color
+        }}/>
+      );
+    }
 
-    const FullLoading = ({ text = 'Carregando...' }) => (
-      <div className="fixed inset-0 bg-[#F0F2F5] flex flex-col items-center justify-center gap-3 z-50">
-        <Spinner size={40} /><p className="text-gray-400 text-sm">{text}</p>
-      </div>
-    );
+    function FullLoading(props) {
+      var text = props.text || 'Carregando...';
+      return (
+        <div className="fixed inset-0 bg-[#F0F2F5] flex flex-col items-center justify-center gap-3 z-50">
+          <Spinner size={40}/><p className="text-gray-400 text-sm">{text}</p>
+        </div>
+      );
+    }
 
-    /* ============================================================
+    function LookupLoading() {
+      return (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4" style={{ background: '#0F1923' }}>
+          <Spinner size={48} color="#F59E0B"/>
+          <p style={{ color: 'rgba(255,255,255,0.8)', fontWeight: '500' }}>Buscando produto...</p>
+        </div>
+      );
+    }
+
+    /* ================================================================
        HEADER
-       ============================================================ */
-    const Header = ({ title, subtitle, onBack, right }) => (
-      <div
-        className="bg-[#0F1923] text-white px-4 sticky top-0 z-40 flex items-center justify-between"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top,0px) + 12px)', paddingBottom: 12 }}
-      >
-        <div className="flex items-center gap-3">
-          {onBack
-            ? <button onClick={onBack} className="p-1 -ml-1 rounded-full active:bg-white/10"><Ico n="back" size={24}/></button>
-            : <Ico n="cart" size={22} cls="text-[#F59E0B]"/>
-          }
-          <div>
-            <p className="font-semibold text-base leading-tight">{title}</p>
-            {subtitle && <p className="text-white/40 text-xs">{subtitle}</p>}
+       ================================================================ */
+    function Header(props) {
+      return (
+        <div className="bg-[#0F1923] text-white px-4 sticky top-0 z-40 flex items-center justify-between"
+             style={{ paddingTop: 'calc(env(safe-area-inset-top,0px) + 12px)', paddingBottom: 12 }}>
+          <div className="flex items-center gap-3">
+            {props.onBack
+              ? <button onClick={props.onBack} className="p-1 -ml-1 rounded-full active:bg-white/10"><Ico n="back" size={24}/></button>
+              : <Ico n="cart" size={22} cls="text-[#F59E0B]"/>
+            }
+            <div>
+              <p className="font-semibold text-base leading-tight">{props.title}</p>
+              {props.subtitle && <p className="text-white/40 text-xs">{props.subtitle}</p>}
+            </div>
           </div>
+          {props.right}
         </div>
-        {right}
-      </div>
-    );
+      );
+    }
 
-    /* ============================================================
+    /* ================================================================
        DIÁLOGO DE CONFIRMAÇÃO
-       ============================================================ */
-    const ConfirmDialog = ({ title, message, confirmLabel = 'Confirmar', confirmColor = '#EF4444', onConfirm, onCancel }) => (
-      <div
-        className="fixed inset-0 bg-black/60 z-[60] flex items-end justify-center fade-in"
-        onClick={onCancel}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
-      >
-        <div className="bg-white w-full max-w-md rounded-t-3xl px-6 pt-6 pb-8 slide-up" onClick={e => e.stopPropagation()}>
-          {title && <h3 className="font-bold text-[#0F1923] text-xl mb-2 text-center">{title}</h3>}
-          <p className="text-gray-400 text-center mb-6 text-sm leading-relaxed">{message}</p>
-          <div className="flex gap-3">
-            <button onClick={onCancel} className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-500 font-medium text-sm active:bg-gray-50">
-              Cancelar
-            </button>
-            <button onClick={onConfirm} className="flex-1 py-3 rounded-2xl text-white font-semibold text-sm active:opacity-80" style={{ background: confirmColor }}>
-              {confirmLabel}
-            </button>
+       ================================================================ */
+    function ConfirmDialog(props) {
+      return (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-end justify-center fade-in"
+             onClick={props.onCancel}
+             style={{ paddingBottom: 'env(safe-area-inset-bottom,0px)' }}>
+          <div className="bg-white w-full max-w-md rounded-t-3xl px-6 pt-6 pb-8 slide-up"
+               onClick={function(e) { e.stopPropagation(); }}>
+            {props.title && <h3 className="font-bold text-[#0F1923] text-xl mb-2 text-center">{props.title}</h3>}
+            <p className="text-gray-400 text-center mb-6 text-sm leading-relaxed">{props.message}</p>
+            <div className="flex gap-3">
+              <button onClick={props.onCancel}
+                className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-500 font-medium text-sm active:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={props.onConfirm}
+                className="flex-1 py-3 rounded-2xl text-white font-semibold text-sm active:opacity-80"
+                style={{ background: props.confirmColor || '#EF4444' }}>
+                {props.confirmLabel || 'Confirmar'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    );
+      );
+    }
 
-    /* ============================================================
-       TELA DO SCANNER
-       ============================================================ */
-    const ScannerView = ({ onScan, onCancel }) => {
-      const [mode, setMode]             = useState('camera');
-      const [manualCode, setManualCode] = useState('');
-      const [cameraError, setCameraError] = useState('');
-      const scannerRef = useRef(null);
-      const scannedRef = useRef(false);
+    /* ================================================================
+       SCANNER — componente puro, sem loading interno
+       O truque: o scanner para ANTES de chamar onScan,
+       garantindo que o DOM seja liberado sem conflito.
+       ================================================================ */
+    function ScannerView(props) {
+      var onScan   = props.onScan;
+      var onCancel = props.onCancel;
 
-      useEffect(() => {
+      var modeState       = useState('camera');
+      var mode            = modeState[0];
+      var setMode         = modeState[1];
+      var manualState     = useState('');
+      var manualCode      = manualState[0];
+      var setManualCode   = manualState[1];
+      var errorState      = useState('');
+      var cameraError     = errorState[0];
+      var setCameraError  = errorState[1];
+
+      var scannerRef = useRef(null);
+      var scannedRef = useRef(false);
+
+      useEffect(function() {
         if (mode !== 'camera') return;
         scannedRef.current = false;
 
-        let scanner;
-        try { scanner = new Html5Qrcode('qr-reader'); }
-        catch(e) { setCameraError('Camera indisponivel. Use a entrada manual.'); setMode('manual'); return; }
+        var scanner;
+        try {
+          scanner = new Html5Qrcode('qr-reader');
+        } catch(e) {
+          setCameraError('Câmera indisponível. Use a entrada manual.');
+          setMode('manual');
+          return;
+        }
         scannerRef.current = scanner;
 
         scanner.start(
@@ -310,131 +353,146 @@
             if (scannedRef.current) return;
             scannedRef.current = true;
             scannerRef.current = null;
-            scanner.stop()
-              .catch(function() {})
-              .finally(function() { onScan(text); });
+            // Para completamente, depois chama onScan
+            scanner.stop().then(
+              function() { onScan(text); },
+              function() { onScan(text); }
+            );
           },
           function() {}
-        ).catch(function() {
-          setCameraError('Camera indisponivel. Use a entrada manual.');
+        ).catch(function(err) {
+          setCameraError('Câmera indisponível. Use a entrada manual.');
           setMode('manual');
         });
 
         return function() {
-          try { if (scannerRef.current) { scannerRef.current.stop().catch(function(){}); } }
-          catch(e) {}
+          if (scannerRef.current) {
+            try { scannerRef.current.stop().catch(function() {}); } catch(e) {}
+            scannerRef.current = null;
+          }
         };
       }, [mode]);
 
       return (
-        <div className="fixed inset-0 bg-[#0F1923] z-50 flex flex-col"
-             style={{ paddingTop: 'env(safe-area-inset-top,0px)' }}>
-          {/* barra superior */}
+        <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#0F1923', paddingTop: 'env(safe-area-inset-top,0px)' }}>
           <div className="flex items-center justify-between px-4 py-3">
-            <button onClick={onCancel} className="p-1 text-white/50 active:text-white"><Ico n="close" size={26}/></button>
-            <span className="text-white font-semibold">Adicionar Item</span>
-            <button
-              onClick={() => { setCameraError(''); setMode(mode === 'camera' ? 'manual' : 'camera'); }}
-              className="text-[#F59E0B] text-sm font-semibold px-2 py-1"
-            >
+            <button onClick={onCancel} className="p-1 active:opacity-60"><Ico n="close" size={26} cls="text-white/60"/></button>
+            <span className="font-semibold" style={{ color: 'white' }}>Adicionar Item</span>
+            <button onClick={function() { setCameraError(''); setMode(mode === 'camera' ? 'manual' : 'camera'); }}
+              className="text-sm font-semibold px-2 py-1" style={{ color: '#F59E0B' }}>
               {mode === 'camera' ? 'Manual' : 'Câmera'}
             </button>
           </div>
 
           {mode === 'camera' ? (
             <div className="flex-1 flex flex-col items-center px-4 pt-2">
-              <p className="text-white/40 text-sm mb-4">Aponte para o código de barras</p>
+              <p className="text-sm mb-4" style={{ color: 'rgba(255,255,255,0.4)' }}>Aponte para o código de barras</p>
               <div id="qr-reader" className="w-full max-w-sm"/>
               {cameraError && <p className="text-red-400 text-sm mt-3 text-center">{cameraError}</p>}
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center px-6">
-              <Ico n="barcode" size={56} cls="text-[#F59E0B] mb-5"/>
-              <p className="text-white/50 text-sm text-center mb-5">Digite o código EAN do produto</p>
+              <Ico n="barcode" size={56} cls="mb-5" style={{ color: '#F59E0B' }}/>
+              <p className="text-sm text-center mb-5" style={{ color: 'rgba(255,255,255,0.5)' }}>Digite o código EAN do produto</p>
               <input
                 type="number" inputMode="numeric"
-                value={manualCode} onChange={e => setManualCode(e.target.value)}
+                value={manualCode} onChange={function(e) { setManualCode(e.target.value); }}
                 placeholder="7891234567890" autoFocus
-                className="w-full bg-white/10 text-white placeholder-white/20 border border-white/20 rounded-2xl px-4 py-3 text-center text-lg tracking-widest tabular focus:outline-none focus:border-[#F59E0B] transition-colors"
+                className="w-full rounded-2xl px-4 py-3 text-center text-lg tracking-widest tabular focus:outline-none"
+                style={{ background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)' }}
               />
               <button
-                onClick={() => manualCode.trim() && onScan(manualCode.trim())}
+                onClick={function() { if (manualCode.trim()) onScan(manualCode.trim()); }}
                 disabled={!manualCode.trim()}
-                className="mt-3 w-full py-3 rounded-2xl font-bold text-[#0F1923] disabled:opacity-30 active:scale-95 transition-transform"
-                style={{ background: '#F59E0B' }}
-              >
+                className="mt-3 w-full py-3 rounded-2xl font-bold active:scale-95"
+                style={{ background: '#F59E0B', color: '#0F1923', opacity: manualCode.trim() ? 1 : 0.3 }}>
                 Buscar Produto
               </button>
             </div>
           )}
 
           <div className="px-6" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom,0px) + 24px)' }}>
-            <button
-              onClick={() => onScan('')}
-              className="w-full text-white/30 text-sm py-3 text-center active:text-white/60 transition-colors"
-            >
+            <button onClick={function() { onScan(''); }}
+              className="w-full text-sm py-3 text-center"
+              style={{ color: 'rgba(255,255,255,0.3)' }}>
               Adicionar produto sem código de barras
             </button>
           </div>
         </div>
       );
-    };
+    }
 
-    /* ============================================================
+    /* ================================================================
        FORMULÁRIO DE ITEM
-       ============================================================ */
-    const AddItemForm = ({ ean, productName, lastPrice, editId, prefillQty, prefillPrice, onAdd, onBack }) => {
-      const [name,        setName]        = useState(productName || '');
-      const [qty,         setQty]         = useState(prefillQty  != null ? String(prefillQty)  : '1');
-      const [price,       setPrice]       = useState(
-        prefillPrice != null ? String(prefillPrice).replace('.', ',')
-          : lastPrice != null ? String(lastPrice).replace('.', ',') : ''
-      );
-      const [editingName, setEditingName] = useState(!productName);
+       ================================================================ */
+    function AddItemForm(props) {
+      var ean         = props.ean;
+      var productName = props.productName;
+      var lastPrice   = props.lastPrice;
+      var editId      = props.editId;
+      var prefillQty  = props.prefillQty;
+      var prefillPrice = props.prefillPrice;
+      var onAdd       = props.onAdd;
+      var onBack      = props.onBack;
 
-      const qtyN     = parseNum(qty);
-      const priceN   = parseNum(price);
-      const subtotal = qtyN * priceN;
-      const canAdd   = name.trim() && qtyN > 0 && priceN > 0;
+      var nameState  = useState(productName || '');
+      var name       = nameState[0];
+      var setName    = nameState[1];
 
-      const adjQty = delta => {
-        const next = Math.max(0.5, parseNum(qty) + delta);
+      var qtyState   = useState(prefillQty != null ? String(prefillQty) : '1');
+      var qty        = qtyState[0];
+      var setQty     = qtyState[1];
+
+      var initPrice  = prefillPrice != null ? String(prefillPrice).replace('.', ',')
+                       : (lastPrice != null ? String(lastPrice).replace('.', ',') : '');
+      var priceState = useState(initPrice);
+      var price      = priceState[0];
+      var setPrice   = priceState[1];
+
+      var editNameState = useState(!productName);
+      var editingName   = editNameState[0];
+      var setEditingName = editNameState[1];
+
+      var qtyN     = parseNum(qty);
+      var priceN   = parseNum(price);
+      var subtotal = qtyN * priceN;
+      var canAdd   = name.trim() && qtyN > 0 && priceN > 0;
+
+      function adjQty(delta) {
+        var next = Math.max(0.5, parseNum(qty) + delta);
         setQty(Number.isInteger(next) ? String(next) : next.toFixed(1));
-      };
+      }
+
+      function handleAdd() {
+        if (!canAdd) return;
+        onAdd({ ean: ean || null, name: name.trim(), qty: qtyN, unitPrice: priceN, subtotal: subtotal });
+      }
 
       return (
-        <div className="fixed inset-0 bg-[#F0F2F5] z-50 flex flex-col"
-             style={{ paddingTop: 'env(safe-area-inset-top,0px)' }}>
-          <div className="bg-[#0F1923] text-white px-4 flex items-center gap-3"
-               style={{ paddingTop: 12, paddingBottom: 12 }}>
-            <button onClick={onBack} className="p-1 -ml-1 active:bg-white/10 rounded-full">
-              <Ico n="back" size={24}/>
-            </button>
+        <div className="fixed inset-0 bg-[#F0F2F5] z-50 flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top,0px)' }}>
+          <div className="bg-[#0F1923] text-white px-4 flex items-center gap-3" style={{ paddingTop: 12, paddingBottom: 12 }}>
+            <button onClick={onBack} className="p-1 -ml-1 active:bg-white/10 rounded-full"><Ico n="back" size={24}/></button>
             <span className="font-semibold text-base">{editId ? 'Editar Item' : 'Adicionar Item'}</span>
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-
             {/* Produto */}
             <div className="bg-white rounded-2xl p-4 shadow-sm">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Produto</span>
                 {productName && (
-                  <button onClick={() => setEditingName(!editingName)} className="text-xs text-blue-500 font-medium">
+                  <button onClick={function() { setEditingName(!editingName); }} className="text-xs text-blue-500 font-medium">
                     {editingName ? 'Cancelar' : 'Editar nome'}
                   </button>
                 )}
               </div>
-              {ean && <p className="text-xs text-gray-300 tabular mb-1.5">EAN {ean}</p>}
-              {editingName ? (
-                <input
-                  type="text" value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Nome do produto" autoFocus
-                  className="w-full border-b-2 border-[#F59E0B] py-1.5 text-gray-800 text-base focus:outline-none bg-transparent"
-                />
-              ) : (
-                <p className="text-gray-800 font-medium leading-snug">{name}</p>
-              )}
+              {ean && <p className="text-xs text-gray-300 tabular mb-1">EAN {ean}</p>}
+              {editingName
+                ? <input type="text" value={name} onChange={function(e) { setName(e.target.value); }}
+                    placeholder="Nome do produto" autoFocus
+                    className="w-full border-b-2 border-[#F59E0B] py-1.5 text-gray-800 text-base focus:outline-none bg-transparent"/>
+                : <p className="text-gray-800 font-medium leading-snug">{name}</p>
+              }
               {lastPrice != null && (
                 <p className="text-xs text-emerald-500 mt-1.5 flex items-center gap-1">
                   <Ico n="tag" size={12}/> Última compra: {fmt(lastPrice)}
@@ -446,14 +504,12 @@
             <div className="bg-white rounded-2xl p-4 shadow-sm">
               <span className="text-xs text-gray-400 uppercase tracking-wider font-medium block mb-3">Quantidade</span>
               <div className="flex items-center gap-4">
-                <button onClick={() => adjQty(-1)}
+                <button onClick={function() { adjQty(-1); }}
                   className="w-11 h-11 rounded-full bg-gray-100 flex items-center justify-center text-2xl text-gray-500 active:bg-gray-200 flex-shrink-0">−</button>
-                <input
-                  type="text" inputMode="decimal"
-                  value={qty} onChange={e => setQty(e.target.value)}
-                  className="flex-1 text-center text-3xl font-black text-[#0F1923] focus:outline-none border-b-2 border-gray-100 focus:border-[#F59E0B] pb-1 tabular transition-colors"
-                />
-                <button onClick={() => adjQty(1)}
+                <input type="text" inputMode="decimal" value={qty}
+                  onChange={function(e) { setQty(e.target.value); }}
+                  className="flex-1 text-center text-3xl font-black text-[#0F1923] focus:outline-none border-b-2 border-gray-100 focus:border-[#F59E0B] pb-1 tabular"/>
+                <button onClick={function() { adjQty(1); }}
                   className="w-11 h-11 rounded-full bg-gray-100 flex items-center justify-center text-2xl text-gray-500 active:bg-gray-200 flex-shrink-0">+</button>
               </div>
             </div>
@@ -463,294 +519,307 @@
               <span className="text-xs text-gray-400 uppercase tracking-wider font-medium block mb-3">Preço Unitário</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-gray-300 text-xl font-medium">R$</span>
-                <input
-                  type="text" inputMode="decimal"
-                  value={price} onChange={e => setPrice(e.target.value)}
+                <input type="text" inputMode="decimal" value={price}
+                  onChange={function(e) { setPrice(e.target.value); }}
                   placeholder="0,00"
-                  className="flex-1 text-3xl font-black text-[#0F1923] focus:outline-none border-b-2 border-gray-100 focus:border-[#F59E0B] pb-1 tabular transition-colors"
-                />
+                  className="flex-1 text-3xl font-black text-[#0F1923] focus:outline-none border-b-2 border-gray-100 focus:border-[#F59E0B] pb-1 tabular"/>
               </div>
             </div>
 
-            {/* Subtotal preview */}
-            <div className={`rounded-2xl p-4 transition-all ${canAdd
-                ? 'bg-[#F59E0B]/10 border border-[#F59E0B]/25'
-                : 'bg-gray-50 border border-gray-100'}`}>
+            {/* Subtotal */}
+            <div className={'rounded-2xl p-4 ' + (canAdd ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50 border border-gray-100')}>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400 text-sm">
-                  {qtyN > 0 && priceN > 0 ? `${qtyN} × ${fmt(priceN)}` : 'Subtotal'}
+                  {(qtyN > 0 && priceN > 0) ? (qtyN + ' × ' + fmt(priceN)) : 'Subtotal'}
                 </span>
-                <span className={`text-2xl font-black tabular ${canAdd ? 'text-[#0F1923]' : 'text-gray-200'}`}>
+                <span className={'text-2xl font-black tabular ' + (canAdd ? 'text-[#0F1923]' : 'text-gray-200')}>
                   {fmt(subtotal)}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Botão adicionar */}
           <div className="px-4 pt-3 pb-6 bg-white border-t border-gray-100"
                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom,0px) + 16px)' }}>
-            <button
-              onClick={() => canAdd && onAdd({ ean: ean || null, name: name.trim(), qty: qtyN, unitPrice: priceN, subtotal })}
-              disabled={!canAdd}
-              className="w-full py-4 rounded-2xl font-bold text-white text-base disabled:opacity-25 active:scale-95 transition-all shadow-md"
-              style={{ background: canAdd ? '#22C55E' : '#9CA3AF' }}
-            >
+            <button onClick={handleAdd} disabled={!canAdd}
+              className="w-full py-4 rounded-2xl font-bold text-white text-base active:scale-95 shadow-md"
+              style={{ background: canAdd ? '#22C55E' : '#9CA3AF', opacity: canAdd ? 1 : 0.3 }}>
               {editId ? 'Salvar alterações' : 'Adicionar ao Carrinho'}
             </button>
           </div>
         </div>
       );
-    };
+    }
 
-    /* ============================================================
+    /* ================================================================
        CARD DE ITEM
-       ============================================================ */
-    const ItemCard = ({ item, onDelete, onEdit }) => (
-      <div className="bg-white rounded-2xl shadow-sm flex items-center gap-3 px-4 py-3.5 fade-in">
-        <div className="flex-1 min-w-0">
-          <p className="text-gray-800 font-medium text-sm leading-snug" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-            {item.name}
-          </p>
-          <p className="text-gray-400 text-xs mt-0.5 tabular">
-            {item.qty === 1 ? `${fmt(item.unitPrice)}/un` : `${item.qty} × ${fmt(item.unitPrice)}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <span className="font-black text-[#0F1923] tabular text-base mr-1">{fmt(item.subtotal)}</span>
-          <button onClick={() => onEdit(item)}
-            className="p-1.5 rounded-xl text-gray-300 active:bg-blue-50 active:text-blue-500 transition-colors">
-            <Ico n="edit" size={16}/>
-          </button>
-          <button onClick={() => onDelete(item.id)}
-            className="p-1.5 rounded-xl text-gray-300 active:bg-red-50 active:text-red-500 transition-colors">
-            <Ico n="trash" size={16}/>
-          </button>
-        </div>
-      </div>
-    );
+       ================================================================ */
+    function ItemCard(props) {
+      var item     = props.item;
+      var onDelete = props.onDelete;
+      var onEdit   = props.onEdit;
 
-    /* ============================================================
+      return (
+        <div className="bg-white rounded-2xl shadow-sm flex items-center gap-3 px-4 py-3.5 fade-in">
+          <div className="flex-1 min-w-0">
+            <p className="text-gray-800 font-medium text-sm leading-snug" style={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+              {item.name}
+            </p>
+            <p className="text-gray-400 text-xs mt-0.5 tabular">
+              {item.qty === 1 ? (fmt(item.unitPrice) + '/un') : (item.qty + ' × ' + fmt(item.unitPrice))}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <span className="font-black text-[#0F1923] tabular text-base mr-1">{fmt(item.subtotal)}</span>
+            <button onClick={function() { onEdit(item); }}
+              className="p-1.5 rounded-xl text-gray-300 active:bg-blue-50 active:text-blue-500">
+              <Ico n="edit" size={16}/>
+            </button>
+            <button onClick={function() { onDelete(item.id); }}
+              className="p-1.5 rounded-xl text-gray-300 active:bg-red-50 active:text-red-500">
+              <Ico n="trash" size={16}/>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    /* ================================================================
        TELA INICIAL
-       ============================================================ */
-    const HomeScreen = ({ onStartCart, onHistory }) => {
-      const [store, setStore] = useState('BH Supermercados');
-      const stores = ['BH Supermercados', 'San Michel', 'Outro'];
+       ================================================================ */
+    function HomeScreen(props) {
+      var onStartCart = props.onStartCart;
+      var onHistory   = props.onHistory;
+      var storeState  = useState('BH Supermercados');
+      var store       = storeState[0];
+      var setStore    = storeState[1];
+      var stores      = ['BH Supermercados', 'San Michel', 'Outro'];
 
       return (
         <div className="min-h-screen bg-[#F0F2F5] flex flex-col">
-          <Header
-            title="Carrinho"
-            subtitle="Gestor de compras"
-            right={
-              <button onClick={onHistory} className="p-2 -mr-1 text-white/50 active:text-white">
-                <Ico n="history" size={22}/>
-              </button>
-            }
+          <Header title="Carrinho" subtitle="Gestor de compras"
+            right={<button onClick={onHistory} className="p-2 -mr-1 text-white/50 active:text-white"><Ico n="history" size={22}/></button>}
           />
           <div className="flex-1 flex flex-col items-center justify-center px-6 pb-12 text-center">
-            <div className="w-24 h-24 rounded-3xl bg-[#0F1923] flex items-center justify-center mb-7 shadow-xl">
+            <div className="w-24 h-24 rounded-3xl flex items-center justify-center mb-7 shadow-xl" style={{ background: '#0F1923' }}>
               <Ico n="cart" size={44} cls="text-[#F59E0B]"/>
             </div>
             <h2 className="text-2xl font-black text-[#0F1923] mb-2">Pronto para comprar?</h2>
             <p className="text-gray-400 text-sm leading-relaxed mb-8 max-w-xs">
               Selecione o mercado, inicie a compra e escaneie os produtos para acompanhar o total em tempo real.
             </p>
-
-            {/* Seleção de mercado */}
             <div className="w-full max-w-xs mb-5">
               <p className="text-xs text-gray-400 uppercase tracking-wider font-medium mb-2 text-left">Onde você está comprando?</p>
               <div className="space-y-2">
-                {stores.map(s => (
-                  <button key={s} onClick={() => setStore(s)}
-                    className={`w-full py-3 px-4 rounded-2xl border-2 text-sm font-medium text-left flex items-center justify-between transition-all active:scale-95 ${
-                      store === s
-                        ? 'border-[#F59E0B] bg-[#F59E0B]/8 text-[#0F1923]'
-                        : 'border-gray-200 bg-white text-gray-400'
-                    }`}
-                  >
-                    {s}
-                    {store === s && <Ico n="check" size={16} cls="text-[#F59E0B]"/>}
-                  </button>
-                ))}
+                {stores.map(function(s) {
+                  return (
+                    <button key={s} onClick={function() { setStore(s); }}
+                      className="w-full py-3 px-4 rounded-2xl border-2 text-sm font-medium text-left flex items-center justify-between active:scale-95"
+                      style={{ borderColor: store === s ? '#F59E0B' : '#E5E7EB', background: store === s ? 'rgba(245,158,11,0.08)' : 'white', color: store === s ? '#0F1923' : '#9CA3AF' }}>
+                      {s}
+                      {store === s && <Ico n="check" size={16} cls="text-[#F59E0B]"/>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-
-            <button
-              onClick={() => onStartCart(store)}
-              className="w-full max-w-xs py-4 rounded-2xl font-black text-white text-base active:scale-95 transition-transform shadow-xl"
-              style={{ background: '#0F1923' }}
-            >
+            <button onClick={function() { onStartCart(store); }}
+              className="w-full max-w-xs py-4 rounded-2xl font-black text-white text-base active:scale-95 shadow-xl"
+              style={{ background: '#0F1923' }}>
               Iniciar Compra
             </button>
-
-            <button onClick={onHistory}
-              className="mt-5 text-gray-400 text-sm flex items-center gap-1.5 active:text-gray-600 transition-colors">
+            <button onClick={onHistory} className="mt-5 text-gray-400 text-sm flex items-center gap-1.5 active:text-gray-600">
               <Ico n="history" size={14}/> Ver compras anteriores
             </button>
           </div>
         </div>
       );
-    };
+    }
 
-    /* ============================================================
+    /* ================================================================
        TELA DO CARRINHO
-       ============================================================ */
-    const CartScreen = ({ cart, uid, onFinalize, onDelete, onHistory }) => {
-      const [items,       setItems]       = useState(cart.items || []);
-      const [view,    setView]    = useState('cart'); // 'cart'|'scanner'|'lookup'|'addItem'
-      const [addData, setAddData] = useState(null);
-      const [confirm,   setConfirm]   = useState(null);
-      const [saving,    setSaving]    = useState(false);
-      const [saveError, setSaveError] = useState(false);
-      const prevTotalRef  = useRef(0);
-      const [totalKey,    setTotalKey]    = useState(0);
+       ================================================================ */
+    function CartScreen(props) {
+      var cart      = props.cart;
+      var uid       = props.uid;
+      var onFinalize = props.onFinalize;
+      var onDelete  = props.onDelete;
+      var onHistory = props.onHistory;
 
-      const total = items.reduce((s, i) => s + i.subtotal, 0);
+      var itemsState  = useState(cart.items || []);
+      var items       = itemsState[0];
+      var setItems    = itemsState[1];
 
-      useEffect(() => {
-        if (prevTotalRef.current !== 0 && total !== prevTotalRef.current)
-          setTotalKey(k => k + 1);
+      // view: 'cart' | 'scanner' | 'lookup' | 'addItem'
+      var viewState   = useState('cart');
+      var view        = viewState[0];
+      var setView     = viewState[1];
+
+      var addDataState = useState(null);
+      var addData      = addDataState[0];
+      var setAddData   = addDataState[1];
+
+      var confirmState = useState(null);
+      var confirm      = confirmState[0];
+      var setConfirm   = confirmState[1];
+
+      var savingState  = useState(false);
+      var saving       = savingState[0];
+      var setSaving    = savingState[1];
+
+      var saveErrState = useState(false);
+      var saveError    = saveErrState[0];
+      var setSaveError = saveErrState[1];
+
+      var prevTotalRef = useRef(0);
+      var totalKeyState = useState(0);
+      var totalKey     = totalKeyState[0];
+      var setTotalKey  = totalKeyState[1];
+
+      var total = items.reduce(function(s, i) { return s + i.subtotal; }, 0);
+
+      useEffect(function() {
+        if (prevTotalRef.current !== 0 && total !== prevTotalRef.current) {
+          setTotalKey(function(k) { return k + 1; });
+        }
         prevTotalRef.current = total;
       }, [total]);
 
-      const persist = async newItems => {
+      async function persist(newItems) {
         setSaving(true); setSaveError(false);
         try { await saveCart(uid, cart.id, newItems); }
-        catch { setSaveError(true); }
+        catch(e) { setSaveError(true); }
         setSaving(false);
-      };
+      }
 
-      const handleScan = async ean => {
-        // 'lookup' desmonta o scanner ANTES de mostrar o loading
-        // evitando conflito de DOM com o Html5Qrcode
+      async function handleScan(ean) {
+        // Muda para 'lookup' primeiro: desmonta scanner limpo,
+        // sem o #qr-reader no DOM, evitando crash do Html5Qrcode
         setView('lookup');
-        let productName = null, lastPrice = null;
+        var productName = null;
+        var lastPrice   = null;
         try {
           if (ean) {
-            const cached = await getCachedProduct(uid, ean);
-            if (cached) { productName = cached.name || null; lastPrice = cached.lastPrice != null ? cached.lastPrice : null; }
-            if (!productName) productName = await lookupEAN(ean);
+            var cached = await getCachedProduct(uid, ean);
+            if (cached) {
+              productName = cached.name || null;
+              lastPrice   = (cached.lastPrice != null) ? cached.lastPrice : null;
+            }
+            if (!productName) { productName = await lookupEAN(ean); }
           }
         } catch(e) {}
-        setAddData({ ean: ean || null, productName, lastPrice, editId: null });
+        setAddData({ ean: ean || null, productName: productName, lastPrice: lastPrice, editId: null });
         setView('addItem');
-      };
+      }
 
-      const handleAddItem = async itemData => {
-        const newItems = addData?.editId
-          ? items.map(i => i.id === addData.editId ? { ...i, ...itemData } : i)
-          : [...items, { id: uid4(), addedAt: new Date().toISOString(), ...itemData }];
-        if (itemData.ean)
-          cacheProduct(uid, itemData.ean, itemData.name, itemData.unitPrice).catch(() => {});
+      async function handleAddItem(itemData) {
+        var newItems;
+        if (addData && addData.editId) {
+          newItems = items.map(function(i) { return i.id === addData.editId ? Object.assign({}, i, itemData) : i; });
+        } else {
+          newItems = items.concat([Object.assign({ id: uid4(), addedAt: new Date().toISOString() }, itemData)]);
+        }
+        if (itemData.ean) { cacheProduct(uid, itemData.ean, itemData.name, itemData.unitPrice); }
         setItems(newItems);
         setView('cart');
         setAddData(null);
         await persist(newItems);
-      };
+      }
 
-      const handleDeleteItem = async id => {
-        const newItems = items.filter(i => i.id !== id);
+      async function handleDeleteItem(id) {
+        var newItems = items.filter(function(i) { return i.id !== id; });
         setItems(newItems);
         await persist(newItems);
-      };
+      }
 
-      const handleEditItem = item => {
+      function handleEditItem(item) {
         setAddData({ ean: item.ean, productName: item.name, lastPrice: null,
                      editId: item.id, prefillQty: item.qty, prefillPrice: item.unitPrice });
         setView('addItem');
-      };
+      }
 
-      const promptFinalize = () => setConfirm({
-        title: 'Finalizar compra',
-        message: `${items.length} ite${items.length===1?'m':'ns'} · Total ${fmt(total)}\n\nCompra salva no histórico.`,
-        label: 'Finalizar', color: '#22C55E',
-        action: async () => {
-          setConfirm(null);
-          await finalizeCart(uid, cart.id, items, cart.store);
-          onFinalize();
-        }
-      });
+      function promptFinalize() {
+        var msg = items.length + (items.length === 1 ? ' item' : ' itens') + ' — Total ' + fmt(total) + '. Compra salva no histórico.';
+        setConfirm({
+          title: 'Finalizar compra', message: msg,
+          label: 'Finalizar', color: '#22C55E',
+          action: async function() {
+            setConfirm(null);
+            await finalizeCart(uid, cart.id, items, cart.store);
+            onFinalize();
+          }
+        });
+      }
 
-      const promptDelete = () => setConfirm({
-        title: 'Excluir compra',
-        message: 'Todos os itens serão removidos. Essa ação não pode ser desfeita.',
-        label: 'Excluir', color: '#EF4444',
-        action: async () => { setConfirm(null); await deleteCart(uid, cart.id); onDelete(); }
-      });
+      function promptDelete() {
+        setConfirm({
+          title: 'Excluir compra',
+          message: 'Todos os itens serão removidos. Essa ação não pode ser desfeita.',
+          label: 'Excluir', color: '#EF4444',
+          action: async function() { setConfirm(null); await deleteCart(uid, cart.id); onDelete(); }
+        });
+      }
 
-      if (view === 'scanner')
-        return <ScannerView onScan={handleScan} onCancel={() => setView('cart')}/>;
-
-      if (view === 'lookup')
-        return (
-          <div className="fixed inset-0 bg-[#0F1923] z-50 flex flex-col items-center justify-center gap-4">
-            <Spinner size={48} color="#F59E0B"/>
-            <p className="text-white font-medium">Buscando produto...</p>
-          </div>
-        );
-
-      if (view === 'addItem' && addData)
+      if (view === 'scanner') {
+        return <ScannerView onScan={handleScan} onCancel={function() { setView('cart'); }}/>;
+      }
+      if (view === 'lookup') {
+        return <LookupLoading/>;
+      }
+      if (view === 'addItem' && addData) {
         return (
           <AddItemForm
             ean={addData.ean} productName={addData.productName}
             lastPrice={addData.lastPrice} editId={addData.editId}
             prefillQty={addData.prefillQty} prefillPrice={addData.prefillPrice}
             onAdd={handleAddItem}
-            onBack={() => { setView('cart'); setAddData(null); }}
+            onBack={function() { setView('cart'); setAddData(null); }}
           />
         );
+      }
 
       return (
         <div className="min-h-screen bg-[#F0F2F5]" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom,0px) + 80px)' }}>
-          <Header
-            title={cart.store || 'Minha Compra'}
-            subtitle={fmtDate(cart.createdAt)}
-            right={
-              <button onClick={onHistory} className="p-2 -mr-1 text-white/40 active:text-white">
-                <Ico n="history" size={20}/>
-              </button>
-            }
+          <Header title={cart.store || 'Minha Compra'} subtitle={fmtDate(cart.createdAt)}
+            right={<button onClick={onHistory} className="p-2 -mr-1 text-white/40 active:text-white"><Ico n="history" size={20}/></button>}
           />
 
-          {/* Faixa do total — divisor estilo recibo */}
-          <div className="bg-white border-b-2 border-dashed border-gray-200 px-4 py-4">
+          {/* Total */}
+          <div className="bg-white px-4 py-4" style={{ borderBottom: '2px dashed #E5E7EB' }}>
             <div className="flex items-end justify-between">
               <div>
                 <p className="text-xs text-gray-400 uppercase tracking-wider font-medium">Total da compra</p>
-                <p key={totalKey} className="text-4xl font-black text-[#0F1923] tabular leading-none mt-1 total-pop">
+                <p key={totalKey} className="text-4xl font-black tabular leading-none mt-1 total-pop" style={{ color: '#0F1923' }}>
                   {fmt(total)}
                 </p>
               </div>
               <div className="text-right">
                 <p className="text-3xl font-black tabular leading-none text-gray-100">{items.length}</p>
                 <p className="text-xs text-gray-400">{items.length === 1 ? 'item' : 'itens'}</p>
-                {saving    && <p className="text-[10px] text-[#F59E0B] mt-0.5">Salvando…</p>}
-                {saveError && <p className="text-[10px] text-red-400 mt-0.5">Erro ao salvar</p>}
+                {saving    && <p className="text-yellow-500" style={{ fontSize: 10 }}>Salvando…</p>}
+                {saveError && <p className="text-red-400" style={{ fontSize: 10 }}>Erro ao salvar</p>}
               </div>
             </div>
           </div>
 
-          {/* Lista de itens */}
+          {/* Itens */}
           <div className="px-4 py-3 space-y-2">
             {items.length === 0 ? (
               <div className="text-center py-16">
                 <Ico n="barcode" size={56} cls="text-gray-200 mx-auto mb-3"/>
                 <p className="text-gray-400 font-medium">Nenhum item ainda</p>
-                <p className="text-gray-300 text-sm mt-1">Toque em <strong>+</strong> para escanear o primeiro produto</p>
+                <p className="text-gray-300 text-sm mt-1">Toque em + para escanear o primeiro produto</p>
               </div>
-            ) : items.map(item => (
-              <ItemCard key={item.id} item={item} onDelete={handleDeleteItem} onEdit={handleEditItem}/>
-            ))}
+            ) : items.map(function(item) {
+              return <ItemCard key={item.id} item={item} onDelete={handleDeleteItem} onEdit={handleEditItem}/>;
+            })}
           </div>
 
-          {/* FAB — Adicionar */}
+          {/* FAB */}
           <div className="fixed right-4 z-30" style={{ bottom: 'calc(env(safe-area-inset-bottom,0px) + 76px)' }}>
-            <button
-              onClick={() => setView('scanner')}
-              className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
-              style={{ background: '#0F1923' }}
-            >
+            <button onClick={function() { setView('scanner'); }}
+              className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl active:scale-90"
+              style={{ background: '#0F1923' }}>
               <Ico n="scan" size={26} cls="text-[#F59E0B]"/>
             </button>
           </div>
@@ -760,15 +829,13 @@
                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom,0px) + 12px)' }}>
             <div className="flex gap-3">
               <button onClick={promptDelete}
-                className="flex items-center justify-center gap-1.5 py-3 px-5 rounded-2xl border-2 border-red-100 text-red-400 font-semibold text-sm active:bg-red-50 transition-colors flex-shrink-0">
+                className="flex items-center justify-center gap-1.5 py-3 px-5 rounded-2xl border-2 font-semibold text-sm active:opacity-70 flex-shrink-0"
+                style={{ borderColor: '#FEE2E2', color: '#F87171' }}>
                 <Ico n="trash" size={16}/> Excluir
               </button>
-              <button
-                onClick={promptFinalize}
-                disabled={items.length === 0}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-white text-sm disabled:opacity-25 active:opacity-80 shadow-md transition-opacity"
-                style={{ background: '#22C55E' }}
-              >
+              <button onClick={promptFinalize} disabled={items.length === 0}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl font-bold text-white text-sm shadow-md"
+                style={{ background: '#22C55E', opacity: items.length === 0 ? 0.3 : 1 }}>
                 <Ico n="check" size={16}/> Finalizar Compra
               </button>
             </div>
@@ -778,50 +845,59 @@
             <ConfirmDialog
               title={confirm.title} message={confirm.message}
               confirmLabel={confirm.label} confirmColor={confirm.color}
-              onConfirm={confirm.action} onCancel={() => setConfirm(null)}
+              onConfirm={confirm.action} onCancel={function() { setConfirm(null); }}
             />
           )}
         </div>
       );
-    };
+    }
 
-    /* ============================================================
-       TELA DE HISTÓRICO
-       ============================================================ */
-    const HistoryScreen = ({ uid, onBack }) => {
-      const [carts,   setCarts]   = useState([]);
-      const [loading, setLoading] = useState(true);
-      const [detail,  setDetail]  = useState(null);
+    /* ================================================================
+       HISTÓRICO
+       ================================================================ */
+    function HistoryScreen(props) {
+      var uid    = props.uid;
+      var onBack = props.onBack;
 
-      useEffect(() => {
-        getHistory(uid).then(h => { setCarts(h); setLoading(false); }).catch(() => setLoading(false));
+      var cartsState  = useState([]);
+      var carts       = cartsState[0];
+      var setCarts    = cartsState[1];
+      var loadState   = useState(true);
+      var loading     = loadState[0];
+      var setLoading  = loadState[1];
+      var detailState = useState(null);
+      var detail      = detailState[0];
+      var setDetail   = detailState[1];
+
+      useEffect(function() {
+        getHistory(uid).then(function(h) { setCarts(h); setLoading(false); }).catch(function() { setLoading(false); });
       }, []);
 
       if (detail) return (
         <div className="min-h-screen bg-[#F0F2F5]">
-          <Header title={detail.store || 'Compra'} subtitle={fmtDate(detail.completedAt)} onBack={() => setDetail(null)}/>
+          <Header title={detail.store || 'Compra'} subtitle={fmtDate(detail.completedAt)} onBack={function() { setDetail(null); }}/>
           <div className="px-4 py-3 space-y-2">
-            {/* Resumo */}
-            <div className="bg-[#0F1923] rounded-2xl p-5 text-white flex items-end justify-between">
+            <div className="rounded-2xl p-5 text-white flex items-end justify-between" style={{ background: '#0F1923' }}>
               <div>
-                <p className="text-white/40 text-xs uppercase tracking-wider">Total pago</p>
+                <p className="text-xs uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.4)' }}>Total pago</p>
                 <p className="text-4xl font-black tabular">{fmt(detail.total)}</p>
               </div>
               <div className="text-right">
-                <p className="text-3xl font-black text-white/20 tabular">{(detail.items||[]).length}</p>
-                <p className="text-white/40 text-xs">{(detail.items||[]).length === 1 ? 'item' : 'itens'}</p>
+                <p className="text-3xl font-black tabular" style={{ color: 'rgba(255,255,255,0.2)' }}>{(detail.items || []).length}</p>
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{(detail.items || []).length === 1 ? 'item' : 'itens'}</p>
               </div>
             </div>
-            {/* Itens */}
-            {(detail.items || []).map(item => (
-              <div key={item.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm flex items-center justify-between">
-                <div>
-                  <p className="text-gray-800 font-medium text-sm">{item.name}</p>
-                  <p className="text-gray-400 text-xs tabular">{item.qty} × {fmt(item.unitPrice)}</p>
+            {(detail.items || []).map(function(item) {
+              return (
+                <div key={item.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm flex items-center justify-between">
+                  <div>
+                    <p className="text-gray-800 font-medium text-sm">{item.name}</p>
+                    <p className="text-gray-400 text-xs tabular">{item.qty} × {fmt(item.unitPrice)}</p>
+                  </div>
+                  <span className="font-black text-gray-700 tabular">{fmt(item.subtotal)}</span>
                 </div>
-                <span className="font-black text-gray-700 tabular">{fmt(item.subtotal)}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       );
@@ -832,82 +908,94 @@
           {loading
             ? <div className="flex justify-center py-12"><Spinner/></div>
             : carts.length === 0
-              ? (
-                <div className="text-center py-16 px-6">
+              ? <div className="text-center py-16 px-6">
                   <Ico n="history" size={52} cls="text-gray-200 mx-auto mb-3"/>
                   <p className="text-gray-400 font-medium">Nenhuma compra finalizada</p>
                   <p className="text-gray-300 text-sm mt-1">As compras finalizadas aparecem aqui</p>
                 </div>
-              )
-              : (
-                <div className="px-4 py-3 space-y-2">
-                  {carts.map(c => (
-                    <button key={c.id} onClick={() => setDetail(c)}
-                      className="w-full bg-white rounded-2xl px-4 py-3.5 shadow-sm flex items-center justify-between active:bg-gray-50 text-left">
-                      <div>
-                        <p className="font-semibold text-gray-800 text-sm">{c.store || 'Compra'}</p>
-                        <p className="text-gray-400 text-xs mt-0.5">
-                          {fmtDate(c.completedAt)} · {(c.items||[]).length} ite{(c.items||[]).length===1?'m':'ns'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-black text-[#0F1923] tabular">{fmt(c.total)}</span>
-                        <span className="text-gray-200 text-lg">›</span>
-                      </div>
-                    </button>
-                  ))}
+              : <div className="px-4 py-3 space-y-2">
+                  {carts.map(function(c) {
+                    return (
+                      <button key={c.id} onClick={function() { setDetail(c); }}
+                        className="w-full bg-white rounded-2xl px-4 py-3.5 shadow-sm flex items-center justify-between active:bg-gray-50 text-left">
+                        <div>
+                          <p className="font-semibold text-gray-800 text-sm">{c.store || 'Compra'}</p>
+                          <p className="text-gray-400 text-xs mt-0.5">
+                            {fmtDate(c.completedAt)} · {(c.items || []).length} {(c.items || []).length === 1 ? 'item' : 'itens'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black tabular" style={{ color: '#0F1923' }}>{fmt(c.total)}</span>
+                          <span className="text-gray-200 text-lg">›</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              )
           }
         </div>
       );
-    };
+    }
 
-    /* ============================================================
+    /* ================================================================
        APP RAIZ
-       ============================================================ */
-    const App = () => {
-      const [user,    setUser]    = useState(null);
-      const [cart,    setCart]    = useState(null);
-      const [loading, setLoading] = useState(true);
-      const [screen,  setScreen]  = useState('home'); // 'home'|'cart'|'history'
+       ================================================================ */
+    function App() {
+      var userState    = useState(null);
+      var user         = userState[0];
+      var setUser      = userState[1];
+      var cartState    = useState(null);
+      var cart         = cartState[0];
+      var setCart      = cartState[1];
+      var loadState    = useState(true);
+      var loading      = loadState[0];
+      var setLoading   = loadState[1];
+      var screenState  = useState('home');
+      var screen       = screenState[0];
+      var setScreen    = screenState[1];
 
-      useEffect(() => {
-        const unsub = auth.onAuthStateChanged(async u => {
-          if (!u) { try { await auth.signInAnonymously(); } catch { setLoading(false); } return; }
+      useEffect(function() {
+        var unsub = auth.onAuthStateChanged(async function(u) {
+          if (!u) {
+            try { await auth.signInAnonymously(); } catch(e) { setLoading(false); }
+            return;
+          }
           setUser(u);
           try {
-            const active = await getActiveCart(u.uid);
+            var active = await getActiveCart(u.uid);
             if (active) { setCart(active); setScreen('cart'); }
-          } catch {}
+          } catch(e) {}
           setLoading(false);
         });
         return unsub;
       }, []);
 
-      const handleStartCart = async store => {
+      async function handleStartCart(store) {
         setLoading(true);
-        try { const c = await createCart(user.uid, store); setCart(c); setScreen('cart'); } catch {}
+        try {
+          var c = await createCart(user.uid, store);
+          setCart(c);
+          setScreen('cart');
+        } catch(e) {}
         setLoading(false);
-      };
+      }
 
       if (loading) return <FullLoading/>;
 
-      if (screen === 'history')
-        return <HistoryScreen uid={user.uid} onBack={() => setScreen(cart ? 'cart' : 'home')}/>;
-
-      if (screen === 'cart' && cart)
+      if (screen === 'history') {
+        return <HistoryScreen uid={user.uid} onBack={function() { setScreen(cart ? 'cart' : 'home'); }}/>;
+      }
+      if (screen === 'cart' && cart) {
         return (
-          <CartScreen
-            cart={cart} uid={user.uid}
-            onFinalize={() => { setCart(null); setScreen('home'); }}
-            onDelete={()   => { setCart(null); setScreen('home'); }}
-            onHistory={()  => setScreen('history')}
+          <CartScreen cart={cart} uid={user.uid}
+            onFinalize={function() { setCart(null); setScreen('home'); }}
+            onDelete={function()   { setCart(null); setScreen('home'); }}
+            onHistory={function()  { setScreen('history'); }}
           />
         );
-
-      return <HomeScreen onStartCart={handleStartCart} onHistory={() => setScreen('history')}/>;
-    };
+      }
+      return <HomeScreen onStartCart={handleStartCart} onHistory={function() { setScreen('history'); }}/>;
+    }
 
     ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
   </script>
