@@ -154,6 +154,9 @@
        Tenta: 1) Cosmos direto  2) Cosmos via proxy  3) Open Food Facts
        Retorna: { name, thumbnail, avgPrice } ou null
        ================================================================ */
+    // Proxy Google Apps Script — contorna CORS do Cosmos sem expor o token
+    var GAS_PROXY = 'https://script.google.com/macros/s/AKfycbypp0DYM-DBqvk2UU7t-z-ahlm4o2RlFvBinfB8U-XnPqLGG1dwcR-7Ps1LJ4QiNZmhw/exec';
+
     function parseCosmos(data) {
       var name  = data.description || '';
       var brand = (data.brand && data.brand.name) ? data.brand.name : '';
@@ -164,49 +167,40 @@
         full = name || brand || '';
       }
       return {
-        name:     full || null,
+        name:      full || null,
         thumbnail: data.thumbnail || null,
-        avgPrice: (data.avg_price && data.avg_price > 0) ? data.avg_price : null
+        avgPrice:  (data.avg_price && data.avg_price > 0) ? data.avg_price : null
       };
     }
 
     async function lookupEAN(ean) {
-      var cosmosHeaders = {
-        'X-Cosmos-Token': COSMOS_TOKEN,
-        'User-Agent':     'Cosmos-API-Request',
-        'Content-Type':   'application/json'
-      };
-      var cosmosUrl = 'https://api.cosmos.bluesoft.com.br/gtins/' + ean + '.json';
-
-      // 1) Cosmos direto
+      // 1) Cosmos via proxy Google Apps Script (sem CORS, sem expor token no browser)
       try {
-        var r1 = await fetch(cosmosUrl, { headers: cosmosHeaders });
-        if (r1.ok) { return parseCosmos(await r1.json()); }
-      } catch(e) {}
-
-      // 2) Cosmos via CORS proxy (caso o browser bloqueie por CORS)
-      try {
-        var proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(cosmosUrl);
-        var r2 = await fetch(proxyUrl, { headers: cosmosHeaders });
-        if (r2.ok) { return parseCosmos(await r2.json()); }
-      } catch(e) {}
-
-      // 3) Open Food Facts (fallback gratuito e ilimitado)
-      try {
-        var r3   = await fetch('https://world.openfoodfacts.org/api/v0/product/' + ean + '.json');
-        var d3   = await r3.json();
-        if (d3.status === 1 && d3.product) {
-          var p     = d3.product;
-          var name3 = p.product_name_pt || p.product_name || '';
-          var brd3  = p.brands || '';
-          var thumb3 = p.image_thumb_url || p.image_small_url || null;
-          var full3 = '';
-          if (name3 && brd3 && name3.toUpperCase().indexOf(brd3.toUpperCase()) === -1) {
-            full3 = name3 + ' (' + brd3 + ')';
-          } else {
-            full3 = name3 || brd3 || '';
+        var r1 = await fetch(GAS_PROXY + '?ean=' + ean);
+        if (r1.ok) {
+          var d1 = await r1.json();
+          if (d1.description || (d1.brand && d1.brand.name)) {
+            return parseCosmos(d1);
           }
-          if (full3) return { name: full3, thumbnail: thumb3, avgPrice: null };
+        }
+      } catch(e) {}
+
+      // 2) Open Food Facts (gratuito, ilimitado, bom para marcas globais)
+      try {
+        var r2 = await fetch('https://world.openfoodfacts.org/api/v0/product/' + ean + '.json');
+        var d2 = await r2.json();
+        if (d2.status === 1 && d2.product) {
+          var p     = d2.product;
+          var name2 = p.product_name_pt || p.product_name || '';
+          var brd2  = p.brands || '';
+          var thumb2 = p.image_thumb_url || p.image_small_url || null;
+          var full2 = '';
+          if (name2 && brd2 && name2.toUpperCase().indexOf(brd2.toUpperCase()) === -1) {
+            full2 = name2 + ' (' + brd2 + ')';
+          } else {
+            full2 = name2 || brd2 || '';
+          }
+          if (full2) return { name: full2, thumbnail: thumb2, avgPrice: null };
         }
       } catch(e) {}
 
