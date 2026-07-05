@@ -488,20 +488,23 @@
             {/* Quantidade */}
             <div className="bg-white rounded-2xl p-4 shadow-sm">
               <span className="text-xs text-gray-400 uppercase tracking-wider font-medium block mb-3">Quantidade</span>
-              <div className="flex items-center gap-4">
+              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
                 <button onClick={function() { adjQty(-1); }}
-                  style={{ width:44, height:44, borderRadius:'50%', background:'#F3F4F6',
-                           display:'flex', alignItems:'center', justifyContent:'center',
-                           fontSize:28, lineHeight:1, color:'#6B7280', flexShrink:0, border:'none' }}>
+                  style={{ minWidth:48, width:48, height:48, borderRadius:'50%',
+                           background:'#F3F4F6', border:'none', fontSize:26, color:'#6B7280',
+                           display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor:'pointer' }}>
                   −
                 </button>
                 <input type="text" inputMode="decimal" value={qty}
                   onChange={function(e) { setQty(e.target.value); }}
-                  className="flex-1 text-center text-3xl font-black text-[#0F1923] focus:outline-none border-b-2 border-gray-100 focus:border-[#F59E0B] pb-1 tabular"/>
+                  style={{ flex:1, minWidth:0, textAlign:'center', fontSize:30, fontWeight:900,
+                           color:'#0F1923', border:'none', borderBottom:'2px solid #F3F4F6',
+                           outline:'none', padding:'0 0 4px 0', background:'transparent',
+                           fontVariantNumeric:'tabular-nums' }}/>
                 <button onClick={function() { adjQty(1); }}
-                  style={{ width:44, height:44, borderRadius:'50%', background:'#F3F4F6',
-                           display:'flex', alignItems:'center', justifyContent:'center',
-                           fontSize:28, lineHeight:1, color:'#6B7280', flexShrink:0, border:'none' }}>
+                  style={{ minWidth:48, width:48, height:48, borderRadius:'50%',
+                           background:'#F3F4F6', border:'none', fontSize:26, color:'#6B7280',
+                           display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor:'pointer' }}>
                   +
                 </button>
               </div>
